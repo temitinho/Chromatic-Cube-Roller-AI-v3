@@ -30,4 +30,5 @@ export interface GameState {
   status: 'playing' | 'won' | 'lost';
   highScore: number;
   aiComparisonScore?: number;
+  aiComparisonMoves?: number;
 }

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
-import * as THREE from 'three';
+import * as THREE from 'this';
 import { ColorType, GameState, Direction } from './types';
 import { GRID_SIZE, START_POS, ALL_COLORS, INITIAL_CUBE_FACES } from './constants';
 import CubeMesh from './components/CubeMesh';
@@ -50,7 +50,7 @@ const generateGrid = (): ColorType[][] => {
   return grid;
 };
 
-const simulateAiEfficiency = (initialGrid: ColorType[][]): number => {
+const simulateAiStats = (initialGrid: ColorType[][]): { efficiency: number, moves: number } => {
   const gridCopy = initialGrid.map(row => [...row]);
   let currentPos: [number, number] = [START_POS[0], START_POS[1]];
   let currentFaces = { ...INITIAL_CUBE_FACES };
@@ -94,7 +94,8 @@ const simulateAiEfficiency = (initialGrid: ColorType[][]): number => {
     }
     gridCopy[currentPos[1]][currentPos[0]] = ColorType.BLACK;
   }
-  return totalMoves > 0 ? Math.floor((25 / totalMoves) * 100) : 0;
+  const efficiency = totalMoves > 0 ? Math.floor((25 / totalMoves) * 100) : 0;
+  return { efficiency, moves: totalMoves };
 };
 
 // --- APP COMPONENT ---
@@ -183,8 +184,8 @@ const App: React.FC = () => {
         const userEfficiency = Math.floor((25 / nextMoves) * 100);
         if (userEfficiency > prev.highScore) localStorage.setItem('cube_high_score', userEfficiency.toString());
         
-        // Calculate AI Shadow Score
-        const aiEff = simulateAiEfficiency(prev.initialGrid);
+        // Calculate AI Shadow Score stats
+        const aiStats = simulateAiStats(prev.initialGrid);
 
         return { 
           ...prev, 
@@ -195,7 +196,8 @@ const App: React.FC = () => {
           matchedCount: nextMatchedCount, 
           status: 'won', 
           highScore: Math.max(prev.highScore, userEfficiency),
-          aiComparisonScore: aiEff
+          aiComparisonScore: aiStats.efficiency,
+          aiComparisonMoves: aiStats.moves
         };
       }
 
@@ -420,8 +422,17 @@ const App: React.FC = () => {
                 </div>
                 {gameState.aiComparisonScore !== undefined && (
                   <div className="bg-blue-500/10 p-4 rounded-2xl border border-blue-400/20 mb-8">
-                    <p className="text-[10px] uppercase text-blue-400/60 font-bold mb-1 tracking-widest">Shadow AI Comparison</p>
-                    <p className="text-sm text-blue-200">The AI would solve this in <span className="text-blue-400 font-bold">{gameState.aiComparisonScore}%</span> efficiency.</p>
+                    <p className="text-[10px] uppercase text-blue-400/60 font-bold mb-3 tracking-widest">Shadow AI Comparison</p>
+                    <div className="flex justify-between gap-4">
+                      <div className="flex-1 text-center">
+                        <p className="text-xs text-blue-300/60 uppercase font-black mb-1">Efficiency</p>
+                        <p className="text-2xl font-mono text-blue-400">{gameState.aiComparisonScore}%</p>
+                      </div>
+                      <div className="flex-1 text-center">
+                        <p className="text-xs text-blue-300/60 uppercase font-black mb-1">Attempts</p>
+                        <p className="text-2xl font-mono text-blue-400">{gameState.aiComparisonMoves}</p>
+                      </div>
+                    </div>
                   </div>
                 )}
               </>
