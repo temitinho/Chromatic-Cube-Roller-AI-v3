@@ -1,0 +1,5 @@
+{
+  "name": "Chromatic Cube Roller AI   v3",
+  "description": "A puzzle game where you roll a colored cube across a grid to match floor tiles. Use spatial reasoning to orient the cube correctly and clear the board.",
+  "requestFramePermissions": []
+}
