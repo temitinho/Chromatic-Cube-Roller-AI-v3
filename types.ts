@@ -26,6 +26,7 @@ export interface GameState {
     right: ColorType;
   };
   moves: number;
+  optimalAiMoves: number;
   matchedCount: number;
   status: 'playing' | 'won' | 'lost';
   highScore: number;

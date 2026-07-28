@@ -1,24 +1,37 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
-import * as THREE from 'this';
+import * as THREE from 'three';
 import { ColorType, GameState, Direction } from './types';
 import { GRID_SIZE, START_POS, ALL_COLORS, INITIAL_CUBE_FACES } from './constants';
 import CubeMesh from './components/CubeMesh';
+import HeaderHUD from './components/HeaderHUD';
+import MobileMenuModal from './components/MobileMenuModal';
+import DPadControls from './components/DPadControls';
+import { Trophy, RefreshCw, Sparkles, AlertCircle } from 'lucide-react';
 
 // --- AI SOLVER UTILS ---
 
 interface CubeOrientation {
-  top: ColorType; bottom: ColorType; front: ColorType; back: ColorType; left: ColorType; right: ColorType;
+  top: ColorType;
+  bottom: ColorType;
+  front: ColorType;
+  back: ColorType;
+  left: ColorType;
+  right: ColorType;
 }
 
 const rotateOrientation = (o: CubeOrientation, dir: Direction): CubeOrientation => {
   const n = { ...o };
-  if (dir === 'up') { n.top = o.back; n.front = o.top; n.bottom = o.front; n.back = o.bottom; }
-  else if (dir === 'down') { n.top = o.front; n.front = o.bottom; n.bottom = o.back; n.back = o.top; }
-  else if (dir === 'left') { n.top = o.right; n.right = o.bottom; n.bottom = o.left; n.left = o.top; }
-  else if (dir === 'right') { n.top = o.left; n.left = o.bottom; n.bottom = o.right; n.right = o.top; }
+  if (dir === 'up') {
+    n.top = o.back; n.front = o.top; n.bottom = o.front; n.back = o.bottom;
+  } else if (dir === 'down') {
+    n.top = o.front; n.front = o.bottom; n.bottom = o.back; n.back = o.top;
+  } else if (dir === 'left') {
+    n.top = o.right; n.right = o.bottom; n.bottom = o.left; n.left = o.top;
+  } else if (dir === 'right') {
+    n.top = o.left; n.left = o.bottom; n.bottom = o.right; n.right = o.top;
+  }
   return n;
 };
 
@@ -50,13 +63,18 @@ const generateGrid = (): ColorType[][] => {
   return grid;
 };
 
-const simulateAiStats = (initialGrid: ColorType[][]): { efficiency: number, moves: number } => {
+const simulateAiStats = (initialGrid: ColorType[][]): { efficiency: number; moves: number } => {
   const gridCopy = initialGrid.map(row => [...row]);
   let currentPos: [number, number] = [START_POS[0], START_POS[1]];
   let currentFaces = { ...INITIAL_CUBE_FACES };
   let totalMoves = 0;
 
-  const findPath = (g: ColorType[][], startX: number, startY: number, startF: CubeOrientation): Direction[] | null => {
+  const findPath = (
+    g: ColorType[][],
+    startX: number,
+    startY: number,
+    startF: CubeOrientation
+  ): Direction[] | null => {
     interface Node { x: number; y: number; faces: CubeOrientation; path: Direction[]; }
     const queue: Node[] = [{ x: startX, y: startY, faces: startF, path: [] }];
     const visited = new Set<string>();
@@ -94,7 +112,7 @@ const simulateAiStats = (initialGrid: ColorType[][]): { efficiency: number, move
     }
     gridCopy[currentPos[1]][currentPos[0]] = ColorType.BLACK;
   }
-  const efficiency = totalMoves > 0 ? Math.floor((25 / totalMoves) * 100) : 0;
+  const efficiency = totalMoves > 0 ? totalMoves : 0;
   return { efficiency, moves: totalMoves };
 };
 
@@ -103,15 +121,17 @@ const simulateAiStats = (initialGrid: ColorType[][]): { efficiency: number, move
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(() => {
     const grid = generateGrid();
+    const aiStats = simulateAiStats(grid);
     return {
       initialGrid: grid,
       grid: grid,
       cubePosition: [START_POS[0], START_POS[1]],
       cubeFaces: { ...INITIAL_CUBE_FACES },
       moves: 0,
+      optimalAiMoves: aiStats.moves || 30,
       matchedCount: 1,
       status: 'playing',
-      highScore: parseInt(localStorage.getItem('cube_high_score') || '0', 10),
+      highScore: parseInt(localStorage.getItem('cube_high_score') || '0', 10)
     };
   });
 
@@ -119,13 +139,19 @@ const App: React.FC = () => {
   const [rollDirection, setRollDirection] = useState<Direction | null>(null);
   const [isAiSolving, setIsAiSolving] = useState(false);
   const [aiMoveQueue, setAiMoveQueue] = useState<Direction[]>([]);
-  
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const audioContext = useRef<AudioContext | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const playSound = (freq: number, type: OscillatorType = 'sine', duration: number = 0.1) => {
+    if (!soundEnabled) return;
     try {
-      if (!audioContext.current) audioContext.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      if (!audioContext.current) {
+        audioContext.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
       const osc = audioContext.current.createOscillator();
       const gain = audioContext.current.createGain();
       osc.type = type;
@@ -136,15 +162,18 @@ const App: React.FC = () => {
       gain.connect(audioContext.current.destination);
       osc.start();
       osc.stop(audioContext.current.currentTime + duration);
-    } catch(e) {}
+    } catch (e) {}
   };
 
-  const handleRoll = useCallback((dir: Direction) => {
-    if (isRolling || gameState.status !== 'playing') return;
-    setRollDirection(dir);
-    setIsRolling(true);
-    playSound(200, 'square', 0.1);
-  }, [isRolling, gameState.status]);
+  const handleRoll = useCallback(
+    (dir: Direction) => {
+      if (isRolling || gameState.status !== 'playing') return;
+      setRollDirection(dir);
+      setIsRolling(true);
+      playSound(200, 'square', 0.1);
+    },
+    [isRolling, gameState.status, soundEnabled]
+  );
 
   const completeRoll = useCallback(() => {
     if (!rollDirection) return;
@@ -171,9 +200,15 @@ const App: React.FC = () => {
       let nextGrid = prev.grid;
       let nextMatchedCount = prev.matchedCount;
 
-      if (currentTileColor !== ColorType.BLACK && currentTileColor !== ColorType.GRAY && currentTileColor === newFaces.bottom) {
+      if (
+        currentTileColor !== ColorType.BLACK &&
+        currentTileColor !== ColorType.GRAY &&
+        currentTileColor === newFaces.bottom
+      ) {
         playSound(600, 'sine', 0.1);
-        nextGrid = prev.grid.map((row, ry) => row.map((col, rx) => (ry === y && rx === x ? ColorType.BLACK : col)));
+        nextGrid = prev.grid.map((row, ry) =>
+          row.map((col, rx) => (ry === y && rx === x ? ColorType.BLACK : col))
+        );
         nextMatchedCount += 1;
       }
 
@@ -181,37 +216,48 @@ const App: React.FC = () => {
       if (isWon) {
         setIsAiSolving(false);
         playSound(800, 'sine', 0.5);
-        const userEfficiency = Math.floor((25 / nextMoves) * 100);
-        if (userEfficiency > prev.highScore) localStorage.setItem('cube_high_score', userEfficiency.toString());
-        
-        // Calculate AI Shadow Score stats
-        const aiStats = simulateAiStats(prev.initialGrid);
+        const finalEfficiency = Math.min(
+          100,
+          Math.round((prev.optimalAiMoves / nextMoves) * 100)
+        );
+        if (finalEfficiency > prev.highScore) {
+          localStorage.setItem('cube_high_score', finalEfficiency.toString());
+        }
 
-        return { 
-          ...prev, 
-          grid: nextGrid, 
-          cubePosition: [x, y], 
-          cubeFaces: newFaces, 
-          moves: nextMoves, 
-          matchedCount: nextMatchedCount, 
-          status: 'won', 
-          highScore: Math.max(prev.highScore, userEfficiency),
-          aiComparisonScore: aiStats.efficiency,
-          aiComparisonMoves: aiStats.moves
+        return {
+          ...prev,
+          grid: nextGrid,
+          cubePosition: [x, y],
+          cubeFaces: newFaces,
+          moves: nextMoves,
+          matchedCount: nextMatchedCount,
+          status: 'won',
+          highScore: Math.max(prev.highScore, finalEfficiency),
+          aiComparisonScore: 100,
+          aiComparisonMoves: prev.optimalAiMoves
         };
       }
 
-      return { ...prev, grid: nextGrid, cubePosition: [x, y], cubeFaces: newFaces, moves: nextMoves, matchedCount: nextMatchedCount };
+      return {
+        ...prev,
+        grid: nextGrid,
+        cubePosition: [x, y],
+        cubeFaces: newFaces,
+        moves: nextMoves,
+        matchedCount: nextMatchedCount
+      };
     });
     setIsRolling(false);
     setRollDirection(null);
-  }, [rollDirection]);
+  }, [rollDirection, soundEnabled]);
 
   const saveMap = () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(gameState.initialGrid));
+    const dataStr =
+      'data:text/json;charset=utf-8,' +
+      encodeURIComponent(JSON.stringify(gameState.initialGrid));
     const downloadAnchorNode = document.createElement('a');
-    downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", "chromatic_grid.json");
+    downloadAnchorNode.setAttribute('href', dataStr);
+    downloadAnchorNode.setAttribute('download', 'chromatic_grid.json');
     document.body.appendChild(downloadAnchorNode);
     downloadAnchorNode.click();
     downloadAnchorNode.remove();
@@ -221,24 +267,28 @@ const App: React.FC = () => {
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = e => {
       try {
         const grid = JSON.parse(e.target?.result as string);
         if (Array.isArray(grid) && grid.length === GRID_SIZE) {
+          const aiStats = simulateAiStats(grid);
           setGameState({
             initialGrid: grid,
             grid: grid,
             cubePosition: [START_POS[0], START_POS[1]],
             cubeFaces: { ...INITIAL_CUBE_FACES },
             moves: 0,
+            optimalAiMoves: aiStats.moves || 30,
             matchedCount: 1,
             status: 'playing',
-            highScore: parseInt(localStorage.getItem('cube_high_score') || '0', 10),
+            highScore: parseInt(localStorage.getItem('cube_high_score') || '0', 10)
           });
           setIsAiSolving(false);
           setAiMoveQueue([]);
         }
-      } catch (err) { alert("Failed to parse grid file."); }
+      } catch (err) {
+        alert('Erro ao carregar o mapa. Verifique o arquivo JSON.');
+      }
     };
     reader.readAsText(file);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -252,8 +302,15 @@ const App: React.FC = () => {
       handleRoll(nextMove);
       return;
     }
-    const startX = gameState.cubePosition[0], startY = gameState.cubePosition[1], startFaces = gameState.cubeFaces;
-    interface Node { x: number; y: number; faces: CubeOrientation; path: Direction[]; }
+    const startX = gameState.cubePosition[0],
+      startY = gameState.cubePosition[1],
+      startFaces = gameState.cubeFaces;
+    interface Node {
+      x: number;
+      y: number;
+      faces: CubeOrientation;
+      path: Direction[];
+    }
     const queue: Node[] = [{ x: startX, y: startY, faces: startFaces, path: [] }];
     const visited = new Set<string>();
     visited.add(`${startX},${startY},${getOrientationKey(startFaces)}`);
@@ -261,14 +318,22 @@ const App: React.FC = () => {
     while (queue.length > 0) {
       const current = queue.shift()!;
       const tileAt = gameState.grid[current.y][current.x];
-      if (tileAt !== ColorType.BLACK && tileAt !== ColorType.GRAY && current.faces.bottom === tileAt) {
+      if (
+        tileAt !== ColorType.BLACK &&
+        tileAt !== ColorType.GRAY &&
+        current.faces.bottom === tileAt
+      ) {
         bestPath = current.path;
         break;
       }
       if (current.path.length > 15) continue;
       for (const dir of ['up', 'down', 'left', 'right'] as Direction[]) {
-        let nx = current.x, ny = current.y;
-        if (dir === 'up') ny += 1; else if (dir === 'down') ny -= 1; else if (dir === 'left') nx -= 1; else if (dir === 'right') nx += 1;
+        let nx = current.x,
+          ny = current.y;
+        if (dir === 'up') ny += 1;
+        else if (dir === 'down') ny -= 1;
+        else if (dir === 'left') nx -= 1;
+        else if (dir === 'right') nx += 1;
         if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) continue;
         const nextFaces = rotateOrientation(current.faces, dir);
         const key = `${nx},${ny},${getOrientationKey(nextFaces)}`;
@@ -278,29 +343,37 @@ const App: React.FC = () => {
         }
       }
     }
-    if (bestPath) setAiMoveQueue(bestPath); else setIsAiSolving(false);
+    if (bestPath) setAiMoveQueue(bestPath);
+    else setIsAiSolving(false);
   }, [isAiSolving, gameState, isRolling, aiMoveQueue, handleRoll]);
 
   useEffect(() => {
     if (isAiSolving) {
-      const timer = setTimeout(runAiStep, 600);
+      const timer = setTimeout(runAiStep, 500);
       return () => clearTimeout(timer);
     }
   }, [isAiSolving, runAiStep]);
 
-  const toggleAi = () => { if (gameState.status === 'playing') { setAiMoveQueue([]); setIsAiSolving(!isAiSolving); } };
+  const toggleAi = () => {
+    if (gameState.status === 'playing') {
+      setAiMoveQueue([]);
+      setIsAiSolving(!isAiSolving);
+    }
+  };
 
   const restart = () => {
     const grid = generateGrid();
+    const aiStats = simulateAiStats(grid);
     setGameState({
       initialGrid: grid,
       grid: grid,
       cubePosition: [START_POS[0], START_POS[1]],
       cubeFaces: { ...INITIAL_CUBE_FACES },
       moves: 0,
+      optimalAiMoves: aiStats.moves || 30,
       matchedCount: 1,
       status: 'playing',
-      highScore: parseInt(localStorage.getItem('cube_high_score') || '0', 10),
+      highScore: parseInt(localStorage.getItem('cube_high_score') || '0', 10)
     });
     setIsRolling(false);
     setRollDirection(null);
@@ -308,150 +381,237 @@ const App: React.FC = () => {
     setAiMoveQueue([]);
   };
 
+  // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (gameState.status !== 'playing' || isAiSolving) return;
       switch (e.key) {
-        case 'ArrowUp': case 'w': handleRoll('up'); break;
-        case 'ArrowDown': case 's': handleRoll('down'); break;
-        case 'ArrowLeft': case 'a': handleRoll('left'); break;
-        case 'ArrowRight': case 'd': handleRoll('right'); break;
+        case 'ArrowUp':
+        case 'w':
+        case 'W':
+          handleRoll('up');
+          break;
+        case 'ArrowDown':
+        case 's':
+        case 'S':
+          handleRoll('down');
+          break;
+        case 'ArrowLeft':
+        case 'a':
+        case 'A':
+          handleRoll('right');
+          break;
+        case 'ArrowRight':
+        case 'd':
+        case 'D':
+          handleRoll('left');
+          break;
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [gameState.status, handleRoll, isAiSolving]);
 
-  const currentTileColor = gameState.grid[gameState.cubePosition[1]]?.[gameState.cubePosition[0]] || ColorType.BLACK;
-  const userEfficiency = Math.floor((25 / (gameState.moves || 1)) * 100);
+  // Touch Swipe Handlers for mobile device screen control
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      touchStartRef.current = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY
+      };
+    }
+  };
 
-  const getIconColor = (bgColor: string) => (['#ffffff', '#eab308', '#f472b6'].includes(bgColor) ? '#111' : '#fff');
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (
+      !touchStartRef.current ||
+      gameState.status !== 'playing' ||
+      isRolling ||
+      isAiSolving
+    )
+      return;
+
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+
+    const deltaX = touch.clientX - touchStartRef.current.x;
+    const deltaY = touch.clientY - touchStartRef.current.y;
+    const minSwipeDistance = 30; // pixels
+
+    if (Math.abs(deltaX) > Math.abs(deltaY)) {
+      if (Math.abs(deltaX) > minSwipeDistance) {
+        if (deltaX > 0) handleRoll('left');
+        else handleRoll('right');
+      }
+    } else {
+      if (Math.abs(deltaY) > minSwipeDistance) {
+        if (deltaY > 0) handleRoll('down');
+        else handleRoll('up');
+      }
+    }
+    touchStartRef.current = null;
+  };
+
+  const currentTileColor =
+    gameState.grid[gameState.cubePosition[1]]?.[gameState.cubePosition[0]] || ColorType.BLACK;
+  const userEfficiency =
+    gameState.moves > 0
+      ? Math.min(100, Math.round((gameState.optimalAiMoves / gameState.moves) * 100))
+      : 100;
 
   return (
-    <div className="relative w-full h-full select-none overflow-hidden bg-[#0a0a0c]">
+    <div
+      className="relative w-full h-full select-none overflow-hidden bg-[#0a0a0c] touch-none"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
+      {/* Hidden File Input for Loading Maps */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleLoadMap}
+        accept=".json"
+        className="hidden"
+      />
+
+      {/* 3D Canvas */}
       <Canvas shadows>
         <PerspectiveCamera makeDefault position={[-5, 6, -8]} fov={45} />
         <OrbitControls enablePan={false} maxPolarAngle={Math.PI / 2.2} />
         <ambientLight intensity={0.5} />
         <directionalLight position={[0, 10, 0]} intensity={1.5} castShadow />
         <group position={[-2, -0.05, -2]}>
-          {gameState.grid.map((row, y) => row.map((color, x) => (
-            <mesh key={`${x}-${y}`} position={[x, 0, y]} receiveShadow>
-              <boxGeometry args={[0.95, 0.1, 0.95]} />
-              <meshStandardMaterial color={color} />
-            </mesh>
-          )))}
+          {gameState.grid.map((row, y) =>
+            row.map((color, x) => (
+              <mesh key={`${x}-${y}`} position={[x, 0, y]} receiveShadow>
+                <boxGeometry args={[0.95, 0.1, 0.95]} />
+                <meshStandardMaterial color={color} />
+              </mesh>
+            ))
+          )}
         </group>
         <group position={[gameState.cubePosition[0] - 2, 0, gameState.cubePosition[1] - 2]}>
-           <CubeMesh faces={gameState.cubeFaces} isRolling={isRolling} rollDirection={rollDirection} onRollComplete={completeRoll} />
+          <CubeMesh
+            faces={gameState.cubeFaces}
+            isRolling={isRolling}
+            rollDirection={rollDirection}
+            onRollComplete={completeRoll}
+          />
         </group>
       </Canvas>
 
-      <div className="absolute top-0 left-0 p-6 pointer-events-none w-full">
-        <div className="flex justify-between items-start w-full">
-          <div className="flex flex-col gap-3">
-            <div className="bg-black/40 backdrop-blur-md p-4 rounded-xl border border-white/10 shadow-2xl pointer-events-auto">
-              <h1 className="text-2xl font-black tracking-tighter uppercase italic text-yellow-400">Chromatic Roller</h1>
-              <div className="mt-2 space-y-1">
-                <p className="text-sm text-gray-400">Tries: <span className="text-white font-mono text-lg">{gameState.moves}</span></p>
-                <p className="text-sm text-gray-400">Efficiency: <span className="text-white font-mono text-lg">{userEfficiency}%</span></p>
-                <p className="text-sm text-gray-400">High Score: <span className="text-white font-mono text-lg">{gameState.highScore}</span></p>
-              </div>
-            </div>
-            <div className="flex flex-col gap-2 pointer-events-auto">
-              <button onClick={toggleAi} className={`w-full px-4 py-3 rounded-xl border font-black uppercase italic text-xs tracking-widest transition-all active:scale-95 shadow-lg flex items-center justify-center gap-2 ${isAiSolving ? 'bg-red-500/80 border-red-400 text-white animate-pulse' : 'bg-yellow-400/20 border-yellow-400/50 text-yellow-400 hover:bg-yellow-400/30'}`}>
-                {isAiSolving ? <><div className="w-2 h-2 rounded-full bg-white animate-ping" />Stop AI Solver</> : <><svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12,2L4.5,20.29L5.21,21L12,18L18.79,21L19.5,20.29L12,2Z"/></svg>Run AI Solver</>}
-              </button>
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={saveMap} className="px-3 py-2 bg-white/5 border border-white/10 text-white rounded-lg text-[10px] uppercase font-bold tracking-wider hover:bg-white/10 transition-colors">Save Map</button>
-                <button onClick={() => fileInputRef.current?.click()} className="px-3 py-2 bg-white/5 border border-white/10 text-white rounded-lg text-[10px] uppercase font-bold tracking-wider hover:bg-white/10 transition-colors">Load Map</button>
-                <input type="file" ref={fileInputRef} onChange={handleLoadMap} accept=".json" className="hidden" />
-              </div>
-              <button onClick={restart} className="w-full px-3 py-2 bg-blue-500/20 border border-blue-400/30 text-blue-400 rounded-lg text-[10px] uppercase font-bold tracking-wider hover:bg-blue-400/20 transition-colors">New Random Board</button>
-            </div>
-          </div>
-          <div className="flex gap-4">
-            <div className="bg-black/40 backdrop-blur-md p-3 rounded-xl border border-white/10 flex flex-col items-center">
-              <span className="text-[10px] uppercase font-bold text-gray-500 mb-2">Cube Bottom</span>
-              <div className="w-10 h-10 rounded shadow-inner" style={{ backgroundColor: gameState.cubeFaces.bottom }} />
-            </div>
-            <div className="bg-black/40 backdrop-blur-md p-3 rounded-xl border border-white/10 flex flex-col items-center">
-              <span className="text-[10px] uppercase font-bold text-gray-500 mb-2">Tile Color</span>
-              <div className="w-10 h-10 rounded shadow-inner" style={{ backgroundColor: currentTileColor }} />
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* Header HUD Bar */}
+      <HeaderHUD
+        moves={gameState.moves}
+        optimalAiMoves={gameState.optimalAiMoves}
+        userEfficiency={userEfficiency}
+        highScore={gameState.highScore}
+        cubeBottomColor={gameState.cubeFaces.bottom}
+        currentTileColor={currentTileColor}
+        isAiSolving={isAiSolving}
+        soundEnabled={soundEnabled}
+        onOpenMenu={() => setIsMenuOpen(true)}
+        onRestart={restart}
+        onToggleAi={toggleAi}
+        onToggleSound={() => setSoundEnabled(prev => !prev)}
+      />
 
-      {gameState.status === 'playing' && (
-        <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
-          <button onPointerDown={() => handleRoll('up')} className="w-16 h-16 bg-white/10 backdrop-blur-md rounded-xl flex items-center justify-center transition-all active:scale-95 border-2 border-white/20 shadow-xl" style={{ backgroundColor: gameState.cubeFaces.front, color: getIconColor(gameState.cubeFaces.front) }}>
-            <svg className="w-8 h-8 rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M7 13l5 5 5-5M7 6l5 5 5-5" /></svg>
-          </button>
-          <div className="flex gap-2">
-            <button onPointerDown={() => handleRoll('right')} className="w-16 h-16 bg-white/10 backdrop-blur-md rounded-xl flex items-center justify-center transition-all active:scale-95 border-2 border-white/20 shadow-xl" style={{ backgroundColor: gameState.cubeFaces.right, color: getIconColor(gameState.cubeFaces.right) }}>
-              <svg className="w-8 h-8 rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M7 13l5 5 5-5M7 6l5 5 5-5" /></svg>
-            </button>
-            <button onPointerDown={() => handleRoll('down')} className="w-16 h-16 bg-white/10 backdrop-blur-md rounded-xl flex items-center justify-center transition-all active:scale-95 border-2 border-white/20 shadow-xl" style={{ backgroundColor: gameState.cubeFaces.back, color: getIconColor(gameState.cubeFaces.back) }}>
-              <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M7 13l5 5 5-5M7 6l5 5 5-5" /></svg>
-            </button>
-            <button onPointerDown={() => handleRoll('left')} className="w-16 h-16 bg-white/10 backdrop-blur-md rounded-xl flex items-center justify-center transition-all active:scale-95 border-2 border-white/20 shadow-xl" style={{ backgroundColor: gameState.cubeFaces.left, color: getIconColor(gameState.cubeFaces.left) }}>
-              <svg className="w-8 h-8 -rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M7 13l5 5 5-5M7 6l5 5 5-5" /></svg>
-            </button>
+      {/* AI Solving Floating Badge */}
+      {isAiSolving && (
+        <div className="absolute top-20 right-4 sm:right-6 z-20 flex flex-col items-end gap-1 pointer-events-none">
+          <div className="bg-black/70 backdrop-blur-xl px-3.5 py-1.5 rounded-full border border-yellow-400/40 text-[10px] font-bold uppercase tracking-[0.15em] text-yellow-400 flex items-center gap-2 shadow-xl animate-pulse">
+            <span className="w-2 h-2 rounded-full bg-yellow-400" />
+            AI Resolvendo...
+          </div>
+          <div className="text-[10px] text-gray-400 font-mono bg-black/50 px-2 py-0.5 rounded-md">
+            Fila: {aiMoveQueue.length} mov.
           </div>
         </div>
       )}
 
+      {/* Touch D-Pad Controls */}
+      {gameState.status === 'playing' && (
+        <DPadControls
+          cubeFaces={gameState.cubeFaces}
+          onRoll={handleRoll}
+          disabled={isRolling || isAiSolving}
+        />
+      )}
+
+      {/* Mobile Options Modal / Bottom Sheet */}
+      <MobileMenuModal
+        isOpen={isMenuOpen}
+        onClose={() => setIsMenuOpen(false)}
+        moves={gameState.moves}
+        optimalAiMoves={gameState.optimalAiMoves}
+        userEfficiency={userEfficiency}
+        highScore={gameState.highScore}
+        isAiSolving={isAiSolving}
+        soundEnabled={soundEnabled}
+        onToggleAi={toggleAi}
+        onSaveMap={saveMap}
+        onLoadMapClick={() => fileInputRef.current?.click()}
+        onRestart={restart}
+        onToggleSound={() => setSoundEnabled(prev => !prev)}
+      />
+
+      {/* Game Over / Victory Modal */}
       {gameState.status !== 'playing' && (
-        <div className="absolute inset-0 bg-black/80 backdrop-blur-xl flex items-center justify-center p-6 animate-in fade-in zoom-in duration-300 z-50">
-          <div className="bg-zinc-900 p-8 rounded-3xl border border-white/20 shadow-2xl max-w-sm w-full text-center">
+        <div className="absolute inset-0 bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 z-50 animate-in fade-in zoom-in duration-300">
+          <div className="bg-[#121318] p-6 sm:p-8 rounded-3xl border border-white/20 shadow-2xl max-w-sm w-full text-center">
             {gameState.status === 'won' ? (
               <>
-                <div className="text-6xl mb-4">🏆</div>
-                <h2 className="text-4xl font-black text-white mb-2 italic">VICTORY!</h2>
-                <p className="text-gray-400 mb-8">Board completed successfully.</p>
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div className="bg-white/5 p-4 rounded-2xl border border-yellow-400/20">
-                    <p className="text-[10px] uppercase text-gray-500 font-bold mb-1 tracking-widest">Your Efficiency</p>
-                    <p className="text-3xl font-mono text-yellow-400">{userEfficiency}%</p>
+                <div className="w-16 h-16 bg-yellow-400/20 text-yellow-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-yellow-400/30">
+                  <Trophy className="w-8 h-8" />
+                </div>
+                <h2 className="text-3xl sm:text-4xl font-black text-white mb-1 italic">
+                  VITÓRIA!
+                </h2>
+                <p className="text-gray-400 text-xs sm:text-sm mb-6">
+                  Você completou todo o tabuleiro com sucesso.
+                </p>
+
+                <div className="grid grid-cols-2 gap-3 mb-6">
+                  <div className="bg-white/5 p-3.5 rounded-2xl border border-white/10">
+                    <p className="text-[10px] uppercase text-gray-400 font-bold mb-0.5 tracking-wider">
+                      Moves
+                    </p>
+                    <p className="text-2xl font-mono font-bold text-white">
+                      {gameState.moves}
+                    </p>
                   </div>
-                  <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
-                    <p className="text-[10px] uppercase text-gray-500 font-bold mb-1 tracking-widest">Total Moves</p>
-                    <p className="text-3xl font-mono text-white">{gameState.moves}</p>
+                  <div className="bg-blue-500/10 p-3.5 rounded-2xl border border-blue-400/20">
+                    <p className="text-[10px] uppercase text-blue-400 font-bold mb-0.5 tracking-wider">
+                      IA optimal moves
+                    </p>
+                    <p className="text-2xl font-mono font-bold text-blue-400">
+                      {gameState.optimalAiMoves}
+                    </p>
                   </div>
                 </div>
-                {gameState.aiComparisonScore !== undefined && (
-                  <div className="bg-blue-500/10 p-4 rounded-2xl border border-blue-400/20 mb-8">
-                    <p className="text-[10px] uppercase text-blue-400/60 font-bold mb-3 tracking-widest">Shadow AI Comparison</p>
-                    <div className="flex justify-between gap-4">
-                      <div className="flex-1 text-center">
-                        <p className="text-xs text-blue-300/60 uppercase font-black mb-1">Efficiency</p>
-                        <p className="text-2xl font-mono text-blue-400">{gameState.aiComparisonScore}%</p>
-                      </div>
-                      <div className="flex-1 text-center">
-                        <p className="text-xs text-blue-300/60 uppercase font-black mb-1">Attempts</p>
-                        <p className="text-2xl font-mono text-blue-400">{gameState.aiComparisonMoves}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </>
             ) : (
               <>
-                <div className="text-6xl mb-4">💀</div>
-                <h2 className="text-4xl font-black text-white mb-2 italic uppercase">You Fell!</h2>
-                <p className="text-gray-400 mb-8">The grid has boundaries!</p>
+                <div className="w-16 h-16 bg-red-500/20 text-red-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30">
+                  <AlertCircle className="w-8 h-8" />
+                </div>
+                <h2 className="text-3xl sm:text-4xl font-black text-white mb-1 italic uppercase">
+                  VOCÊ CAIU!
+                </h2>
+                <p className="text-gray-400 text-xs sm:text-sm mb-6">
+                  Cuidado com as bordas do tabuleiro!
+                </p>
               </>
             )}
-            <button onClick={restart} className="w-full bg-yellow-400 hover:bg-yellow-300 text-black font-black py-4 rounded-2xl transition-all active:scale-95 text-xl uppercase italic tracking-tighter">Try Again</button>
-          </div>
-        </div>
-      )}
 
-      {isAiSolving && (
-        <div className="absolute top-1/2 right-10 -translate-y-1/2 flex flex-col items-center gap-1 pointer-events-none">
-          <div className="bg-black/60 backdrop-blur-xl px-4 py-2 rounded-full border border-white/20 text-[10px] font-bold uppercase tracking-[0.2em] text-white">AI Thinking...</div>
-          <div className="text-[10px] text-gray-500 font-mono">Moves in Queue: {aiMoveQueue.length}</div>
+            <button
+              onClick={restart}
+              className="w-full bg-yellow-400 hover:bg-yellow-300 text-black font-black py-3.5 rounded-2xl transition-all active:scale-95 text-lg uppercase italic tracking-tight flex items-center justify-center gap-2 shadow-lg"
+            >
+              <RefreshCw className="w-5 h-5" />
+              Tentar Novamente
+            </button>
+          </div>
         </div>
       )}
     </div>
