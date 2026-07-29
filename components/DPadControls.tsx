@@ -53,8 +53,8 @@ export const DPadControls: React.FC<DPadControlsProps> = ({
           disabled={disabled}
           className="w-12 h-12 sm:w-14 sm:h-14 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center transition-all active:scale-90 border-2 border-white/20 shadow-2xl disabled:opacity-50"
           style={{
-            backgroundColor: cubeFaces.left,
-            color: getIconColor(cubeFaces.left)
+            backgroundColor: cubeFaces.right,
+            color: getIconColor(cubeFaces.right)
           }}
           title="Botão Esquerda -> Rolar para Direita"
         >
@@ -87,8 +87,8 @@ export const DPadControls: React.FC<DPadControlsProps> = ({
           disabled={disabled}
           className="w-12 h-12 sm:w-14 sm:h-14 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center transition-all active:scale-90 border-2 border-white/20 shadow-2xl disabled:opacity-50"
           style={{
-            backgroundColor: cubeFaces.right,
-            color: getIconColor(cubeFaces.right)
+            backgroundColor: cubeFaces.left,
+            color: getIconColor(cubeFaces.left)
           }}
           title="Botão Direita -> Rolar para Esquerda"
         >
